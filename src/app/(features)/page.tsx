@@ -81,13 +81,6 @@ const features = [
     cta: 'Create Script',
   },
   {
-    title: 'Tug of War Math',
-    description: 'Competitive multiplayer arithmetic tug-of-war game.',
-    href: '/tug-of-war',
-    icon: <Award className="w-7 h-7 text-primary shrink-0" />,
-    cta: 'Play Game',
-  },
-  {
     title: 'Gamified Learning',
     description: 'Interactive logic grids, math puzzles & memory matches.',
     href: '/gamified-learning',
@@ -112,18 +105,6 @@ export default function DashboardPage() {
           <p className="text-muted-foreground text-sm sm:text-base leading-relaxed">
             Your comprehensive teaching co-pilot. Generate textbook diagrams, culturally localized stories, tiered worksheets, and structured lesson plans in seconds.
           </p>
-        </div>
-        <div className="flex flex-wrap sm:flex-nowrap gap-3 shrink-0">
-          <Button asChild size="lg" className="font-semibold shadow-sm">
-            <Link href="/visual-aid">
-              <FileImage className="mr-2 h-4 w-4" /> Create Visual Aid
-            </Link>
-          </Button>
-          <Button asChild variant="outline" size="lg">
-            <Link href="/lesson-planner">
-              <ListTodo className="mr-2 h-4 w-4" /> Lesson Planner
-            </Link>
-          </Button>
         </div>
       </div>
 

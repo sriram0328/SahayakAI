@@ -5,7 +5,11 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import Image from "next/image";
-import { generateVisualAid } from "@/ai/flows/visual-aid-generator";
+import {
+  generateVisualAid,
+  GenerateVisualAidOutput,
+} from "@/ai/flows/visual-aid-generator";
+import { EducationalWebImage } from "@/lib/educational-images";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -48,6 +52,9 @@ import {
   Eye,
   FileCode2,
   Brush,
+  Globe,
+  CheckCircle2,
+  ImageIcon,
 } from "lucide-react";
 import { useSpeechToText } from "@/hooks/use-speech-to-text";
 import { GeneratingLoader } from "@/components/ui/generating-loader";
@@ -100,12 +107,15 @@ const popularTopics = [
   "Plant Cell Structure",
   "Water Cycle Diagram",
   "Solar System & Orbits",
-  "Human Brain Cross-Section",
+  "Human Brain Anatomy",
   "Photosynthesis Process",
+  "Nitrogen Cycle",
+  "Human Eye Anatomy",
 ];
 
 const visualAidFormSchema = z.object({
-  prompt: z.string().min(3, "Prompt must be at least 3 characters long."),
+  prompt: z.string().min(3, "Topic must be at least 3 characters long."),
+  sourceMode: z.enum(["web-first", "ai-only"]).default("web-first"),
   style: z
     .enum(["textbook", "chalkboard", "realistic", "pencil", "vector"])
     .default("textbook"),
@@ -121,10 +131,10 @@ type SearchFormValues = z.infer<typeof searchFormSchema>;
 
 function AIVisualAidGenerator() {
   const [isLoading, setIsLoading] = useState(false);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [currentResult, setCurrentResult] = useState<GenerateVisualAidOutput | null>(null);
+  const [activeImageUrl, setActiveImageUrl] = useState<string | null>(null);
+  const [activeTitle, setActiveTitle] = useState<string>("");
   const [currentPrompt, setCurrentPrompt] = useState<string>("");
-  const [currentStyle, setCurrentStyle] = useState<string>("textbook");
-  const [enrichedPrompt, setEnrichedPrompt] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const { toast } = useToast();
   const [isListening, setIsListening] = useState(false);
@@ -138,10 +148,13 @@ function AIVisualAidGenerator() {
     resolver: zodResolver(visualAidFormSchema),
     defaultValues: {
       prompt: "",
+      sourceMode: "web-first",
       style: "textbook",
       aspectRatio: "4:3",
     },
   });
+
+  const selectedSourceMode = form.watch("sourceMode");
 
   const { startListening, stopListening, hasRecognitionSupport } =
     useSpeechToText({
@@ -162,33 +175,40 @@ function AIVisualAidGenerator() {
   const handleGenerate = async (data: VisualAidFormValues) => {
     setIsLoading(true);
     setCurrentPrompt(data.prompt);
-    setCurrentStyle(data.style);
     try {
       const result = await generateVisualAid({
         prompt: data.prompt,
+        sourceMode: data.sourceMode,
         style: data.style,
         outputType: data.style === "vector" ? "svg" : "image",
         aspectRatio: data.aspectRatio,
       });
-      setImageUrl(result.mediaUrl);
-      setEnrichedPrompt(result.enrichedPrompt || null);
+
+      setCurrentResult(result);
+      setActiveImageUrl(result.mediaUrl);
+      setActiveTitle(result.title);
     } catch (error: any) {
       console.error("Visual aid generation error in UI:", error);
       toast({
         variant: "destructive",
-        title: "Generation Failed",
+        title: "Retrieval Failed",
         description:
           error.message ||
-          "Failed to generate visual aid. Please try a different prompt.",
+          "Could not find or generate visual aid for this topic.",
       });
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleSelectAlternativeImage = (img: EducationalWebImage) => {
+    setActiveImageUrl(img.url);
+    setActiveTitle(img.title);
+  };
+
   const handleCopyLink = () => {
-    if (!imageUrl) return;
-    navigator.clipboard.writeText(imageUrl);
+    if (!activeImageUrl) return;
+    navigator.clipboard.writeText(activeImageUrl);
     setCopied(true);
     toast({
       title: "Link Copied",
@@ -199,30 +219,31 @@ function AIVisualAidGenerator() {
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-      {/* Left Column: Form & Style Controls */}
+      {/* Left Column: Form & Source Controls */}
       <Card className="xl:col-span-5 shadow-sm border">
         <Form {...form}>
           <form onSubmit={form.handleSubmit(handleGenerate)}>
             <CardHeader className="pb-4">
               <CardTitle className="font-headline text-xl flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-primary" />
-                AI Visual Aid Generator
+                <BookOpen className="w-5 h-5 text-primary" />
+                Educational Visual Aids & Diagrams
               </CardTitle>
               <CardDescription>
-                Create textbook-grade anatomical diagrams, chalk art sketches,
-                or 3D scientific models for classroom teaching.
+                Search verified, peer-reviewed textbook diagrams from open educational
+                repositories, or generate custom AI illustrations.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-5">
               {isClient ? (
                 <>
+                  {/* Topic Input with Voice */}
                   <FormField
                     control={form.control}
                     name="prompt"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-sm font-semibold">
-                          Topic / Subject
+                          Subject or Concept
                         </FormLabel>
                         <FormControl>
                           <div className="relative">
@@ -265,11 +286,12 @@ function AIVisualAidGenerator() {
                         <button
                           key={topic}
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
                             form.setValue("prompt", topic, {
                               shouldValidate: true,
-                            })
-                          }
+                            });
+                            form.handleSubmit(handleGenerate)();
+                          }}
                           className="text-xs px-2.5 py-1 bg-secondary text-secondary-foreground hover:bg-primary/10 hover:text-primary rounded-full transition-colors border"
                         >
                           {topic}
@@ -278,14 +300,14 @@ function AIVisualAidGenerator() {
                     </div>
                   </div>
 
-                  {/* Style Selection */}
+                  {/* Source Mode Selector */}
                   <FormField
                     control={form.control}
-                    name="style"
+                    name="sourceMode"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel className="text-sm font-semibold">
-                          Illustration Style
+                          Image Source Method
                         </FormLabel>
                         <Select
                           onValueChange={field.onChange}
@@ -294,66 +316,115 @@ function AIVisualAidGenerator() {
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Select style" />
+                              <SelectValue placeholder="Select image source" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {styleOptions.map((opt) => (
-                              <SelectItem key={opt.id} value={opt.id}>
-                                <div className="flex items-center gap-2">
-                                  <opt.icon className="w-4 h-4 text-primary shrink-0" />
-                                  <span>{opt.label}</span>
+                            <SelectItem value="web-first">
+                              <div className="flex items-center gap-2">
+                                <Globe className="w-4 h-4 text-blue-500" />
+                                <div>
+                                  <span className="font-medium">
+                                    Verified Educational Web Images
+                                  </span>{" "}
+                                  <span className="text-xs text-muted-foreground">
+                                    (100% Context Match - Recommended)
+                                  </span>
                                 </div>
-                              </SelectItem>
-                            ))}
+                              </div>
+                            </SelectItem>
+                            <SelectItem value="ai-only">
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="w-4 h-4 text-primary" />
+                                <div>
+                                  <span className="font-medium">
+                                    AI Generated Visual
+                                  </span>{" "}
+                                  <span className="text-xs text-muted-foreground">
+                                    (Custom AI illustration)
+                                  </span>
+                                </div>
+                              </div>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                          {
-                            styleOptions.find((s) => s.id === field.value)
-                              ?.desc
-                          }
+                          {field.value === "web-first"
+                            ? "Fetches authentic, labeled textbook diagrams from Wikimedia Commons / Wikipedia; falls back to AI if unavailable."
+                            : "Generates custom creative illustration using Gemini prompt-engineered visual models."}
                         </p>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
 
-                  {/* Aspect Ratio Selection */}
-                  <FormField
-                    control={form.control}
-                    name="aspectRatio"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-sm font-semibold">
-                          Aspect Ratio
-                        </FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
-                          disabled={isLoading}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select aspect ratio" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="4:3">
-                              4:3 (Classroom Slides & Projectors)
-                            </SelectItem>
-                            <SelectItem value="16:9">
-                              16:9 (Widescreen Smartboards)
-                            </SelectItem>
-                            <SelectItem value="1:1">
-                              1:1 (Square Diagram)
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {/* AI Style & Aspect Ratio (Only when AI generation is selected or as fallback) */}
+                  {selectedSourceMode === "ai-only" && (
+                    <div className="p-3 bg-muted/40 rounded-xl border space-y-4">
+                      <FormField
+                        control={form.control}
+                        name="style"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-semibold">
+                              AI Artistic Style
+                            </FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                              disabled={isLoading}
+                            >
+                              <FormControl>
+                                <SelectTrigger className="h-9 text-xs">
+                                  <SelectValue placeholder="Select style" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {styleOptions.map((opt) => (
+                                  <SelectItem key={opt.id} value={opt.id}>
+                                    <div className="flex items-center gap-2">
+                                      <opt.icon className="w-3.5 h-3.5 text-primary shrink-0" />
+                                      <span className="text-xs">{opt.label}</span>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="aspectRatio"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel className="text-xs font-semibold">
+                              Aspect Ratio
+                            </FormLabel>
+                            <Select
+                              onValueChange={field.onChange}
+                              defaultValue={field.value}
+                              disabled={isLoading}
+                            >
+                              <FormControl>
+                                <SelectTrigger className="h-9 text-xs">
+                                  <SelectValue placeholder="Select aspect ratio" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                <SelectItem value="4:3">4:3 (Classroom Slides)</SelectItem>
+                                <SelectItem value="16:9">16:9 (Widescreen)</SelectItem>
+                                <SelectItem value="1:1">1:1 (Square)</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="space-y-4">
@@ -365,18 +436,24 @@ function AIVisualAidGenerator() {
             <CardFooter className="pt-2">
               <Button
                 type="submit"
-                className="w-full"
+                className="w-full font-semibold"
                 disabled={isLoading || isListening || !isClient}
               >
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating Educational Visual...
+                    Searching & Generating Diagram...
                   </>
                 ) : (
                   <>
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Generate High-Quality Visual
+                    {selectedSourceMode === "web-first" ? (
+                      <Search className="mr-2 h-4 w-4" />
+                    ) : (
+                      <Sparkles className="mr-2 h-4 w-4" />
+                    )}
+                    {selectedSourceMode === "web-first"
+                      ? "Find 100% Matched Educational Diagram"
+                      : "Generate AI Visual"}
                   </>
                 )}
               </Button>
@@ -385,40 +462,58 @@ function AIVisualAidGenerator() {
         </Form>
       </Card>
 
-      {/* Right Column: High-Resolution Visual Preview */}
+      {/* Right Column: High-Resolution Visual Preview & Alternatives */}
       <Card className="xl:col-span-7 shadow-sm border min-h-[520px] flex flex-col">
         <CardHeader className="pb-3 border-b flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="font-headline text-lg">
-              {currentPrompt ? currentPrompt : "Educational Visual Canvas"}
+          <div className="space-y-0.5">
+            <CardTitle className="font-headline text-lg line-clamp-1">
+              {activeTitle || currentPrompt || "Educational Visual Canvas"}
             </CardTitle>
-            <CardDescription className="text-xs">
-              {imageUrl
-                ? `Generated in ${currentStyle.toUpperCase()} style`
-                : "Your high-resolution visual diagram will appear below."}
+            <CardDescription className="text-xs flex items-center gap-1.5">
+              {currentResult ? (
+                <>
+                  {currentResult.source === "web" ? (
+                    <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      {currentResult.sourceLabel}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-primary font-medium">
+                      <Sparkles className="w-3.5 h-3.5" />
+                      {currentResult.sourceLabel}
+                    </span>
+                  )}
+                </>
+              ) : (
+                "Your verified educational diagram will appear below."
+              )}
             </CardDescription>
           </div>
-          {imageUrl && (
+
+          {activeImageUrl && (
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="capitalize text-xs">
-                {currentStyle}
+              <Badge
+                variant={currentResult?.source === "web" ? "secondary" : "outline"}
+                className="capitalize text-xs font-medium"
+              >
+                {currentResult?.source === "web" ? "100% Context Match" : "AI Custom"}
               </Badge>
               <Dialog>
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" title="Fullscreen Preview">
                     <Maximize2 className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-4xl p-2 bg-slate-950 border-slate-800">
+                <DialogContent className="max-w-5xl p-2 bg-slate-950 border-slate-800">
                   <DialogHeader className="p-4 pb-2">
                     <DialogTitle className="text-white text-base">
-                      {currentPrompt || "Visual Aid Preview"}
+                      {activeTitle || currentPrompt || "Visual Diagram Preview"}
                     </DialogTitle>
                   </DialogHeader>
-                  <div className="relative w-full h-[70vh] flex items-center justify-center p-2">
+                  <div className="relative w-full h-[75vh] flex items-center justify-center p-2">
                     <Image
-                      src={imageUrl}
-                      alt={currentPrompt || "Visual Aid"}
+                      src={activeImageUrl}
+                      alt={activeTitle || currentPrompt || "Visual Aid"}
                       fill
                       unoptimized
                       className="object-contain"
@@ -434,21 +529,20 @@ function AIVisualAidGenerator() {
           {isLoading && (
             <div className="py-16 flex flex-col items-center">
               <GeneratingLoader>
-                Crafting detailed educational visual with AI...
+                Searching educational libraries and verifying context...
               </GeneratingLoader>
               <p className="text-xs text-muted-foreground mt-4 text-center max-w-sm">
-                Enriching scientific specifications and rendering accurate
-                structures...
+                Retrieving peer-reviewed textbook diagrams from open repositories...
               </p>
             </div>
           )}
 
-          {!isLoading && imageUrl && (
+          {!isLoading && activeImageUrl && (
             <div className="w-full flex flex-col items-center gap-4">
-              <div className="relative w-full aspect-[4/3] max-h-[480px] bg-slate-950 rounded-xl overflow-hidden border shadow-inner flex items-center justify-center group">
+              <div className="relative w-full aspect-[4/3] max-h-[480px] bg-slate-950/90 rounded-xl overflow-hidden border shadow-inner flex items-center justify-center group">
                 <Image
-                  src={imageUrl}
-                  alt={currentPrompt || "Generated visual aid"}
+                  src={activeImageUrl}
+                  alt={activeTitle || currentPrompt || "Educational diagram"}
                   fill
                   unoptimized
                   className="object-contain p-2"
@@ -456,34 +550,79 @@ function AIVisualAidGenerator() {
                 />
               </div>
 
-              {enrichedPrompt && (
+              {/* Gallery of Alternative Educational Diagrams from Web */}
+              {currentResult?.webImages && currentResult.webImages.length > 1 && (
+                <div className="w-full space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <ImageIcon className="w-3.5 h-3.5 text-primary" />
+                      More Matching Diagrams ({currentResult.webImages.length} available):
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">Click any thumbnail to view</span>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
+                    {currentResult.webImages.map((img, idx) => {
+                      const isSelected = activeImageUrl === img.url;
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleSelectAlternativeImage(img)}
+                          className={`relative aspect-video rounded-lg overflow-hidden border transition-all text-left group bg-slate-900 ${
+                            isSelected
+                              ? "ring-2 ring-primary border-transparent scale-[1.03]"
+                              : "hover:opacity-90 opacity-75 hover:border-primary/50"
+                          }`}
+                          title={img.title}
+                        >
+                          <Image
+                            src={img.url}
+                            alt={img.title}
+                            fill
+                            unoptimized
+                            className="object-cover"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1">
+                            <span className="text-[9px] text-white line-clamp-1 font-medium">
+                              {img.title}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* AI Enriched Prompt details if generated via AI */}
+              {currentResult?.enrichedPrompt && (
                 <div className="w-full p-3 rounded-lg bg-muted/60 border text-xs text-muted-foreground">
                   <span className="font-semibold text-foreground mr-1">
-                    Pedagogical Specification:
+                    AI Pedagogical Specification:
                   </span>
-                  {enrichedPrompt}
+                  {currentResult.enrichedPrompt}
                 </div>
               )}
             </div>
           )}
 
-          {!isLoading && !imageUrl && (
+          {!isLoading && !activeImageUrl && (
             <div className="flex flex-col items-center justify-center text-center py-20 text-muted-foreground">
               <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4 text-primary">
                 <BookOpen className="w-8 h-8" />
               </div>
               <h3 className="font-semibold text-base text-foreground mb-1">
-                No Visual Aid Generated Yet
+                No Diagram Selected Yet
               </h3>
               <p className="text-xs max-w-sm text-muted-foreground">
                 Enter a topic on the left (e.g. &ldquo;Human Heart Anatomy&rdquo;)
-                and choose a style to generate high-definition visual materials.
+                to instantly retrieve verified educational diagrams and textbook visuals.
               </p>
             </div>
           )}
         </CardContent>
 
-        {imageUrl && !isLoading && (
+        {activeImageUrl && !isLoading && (
           <CardFooter className="border-t p-4 flex flex-wrap items-center justify-between gap-3 bg-muted/20">
             <div className="flex items-center gap-2">
               <Button
@@ -506,19 +645,21 @@ function AIVisualAidGenerator() {
                 className="text-xs"
               >
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                Regenerate
+                Refresh Search
               </Button>
             </div>
 
             <Button asChild size="sm" className="text-xs font-semibold">
               <a
-                href={imageUrl}
-                download={`${currentPrompt.replace(/\s+/g, "-").toLowerCase() || "visual-aid"}.${imageUrl.startsWith("data:image/svg") ? "svg" : "jpg"}`}
+                href={activeImageUrl}
+                download={`${(activeTitle || currentPrompt || "diagram")
+                  .replace(/\s+/g, "-")
+                  .toLowerCase()}.${activeImageUrl.startsWith("data:image/svg") ? "svg" : "jpg"}`}
                 target="_blank"
                 rel="noreferrer"
               >
                 <Download className="mr-1.5 h-3.5 w-3.5" />
-                Download High-Res
+                Download Diagram
               </a>
             </Button>
           </CardFooter>
@@ -557,11 +698,10 @@ function WebImageSearcher() {
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <CardHeader>
               <CardTitle className="font-headline text-lg">
-                Web Image & Textbook Search
+                Google Images Educational Search
               </CardTitle>
               <CardDescription>
-                Find verified high-resolution textbook photographs and diagrams
-                across open educational repositories.
+                Open Google Images with filtered educational diagram search query in a new tab.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -594,7 +734,7 @@ function WebImageSearcher() {
             <CardFooter>
               <Button type="submit" disabled={!isClient}>
                 <Search className="mr-2 h-4 w-4" />
-                Search Educational Images in New Tab
+                Search in Google Images
               </Button>
             </CardFooter>
           </form>
@@ -609,18 +749,17 @@ export default function VisualAidsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-bold font-headline tracking-tight">
-          Visual Aids & Educational Illustrations
+          Visual Aids & Educational Diagrams
         </h1>
         <p className="text-sm text-muted-foreground">
-          Generate accurate scientific cross-sections, blackboard sketches, and
-          classroom visual aids.
+          Find 100% matched, peer-reviewed textbook diagrams or create custom AI illustrations.
         </p>
       </div>
 
       <Tabs defaultValue="generator" className="w-full">
         <TabsList className="grid w-full max-w-md grid-cols-2">
-          <TabsTrigger value="generator">AI Visual Aid Generator</TabsTrigger>
-          <TabsTrigger value="search">Web Search</TabsTrigger>
+          <TabsTrigger value="generator">Educational Visuals</TabsTrigger>
+          <TabsTrigger value="search">Google Images</TabsTrigger>
         </TabsList>
         <TabsContent value="generator" className="mt-6">
           <AIVisualAidGenerator />

@@ -5,6 +5,7 @@ import {
   generateSpeechWithGemini,
   generateEducationalImageUrl,
 } from '@/lib/gemini';
+import { searchEducationalWebImages } from '@/lib/educational-images';
 
 export interface GenerateAnswerForLaterInput {
   question: string;
@@ -39,27 +40,40 @@ Provide a comprehensive, engaging, and clear pedagogical answer:
         'You are an expert, encouraging teacher resolving queued classroom questions thoroughly.',
     });
 
-    const [audioUri, imageResult] = await Promise.all([
-      generateSpeechWithGemini(answer.substring(0, 400), 'Kore').catch((err) => {
-        console.error('Audio generation for Ask Later failed:', err);
-        return '';
-      }),
-      generateEducationalImageUrl(
-        `Educational diagram explaining: ${input.question}`,
-        'textbook',
-        '16:9'
-      ).catch((err) => {
-        console.error('Image generation for Ask Later failed:', err);
-        return {
-          url: `https://picsum.photos/seed/${Math.floor(Math.random() * 1000)}/768/432`,
-          enrichedPrompt: '',
-        };
-      }),
-    ]);
+    // 1. Try to fetch high quality educational diagram from web first
+    let visualUrl = '';
+    try {
+      const webResults = await searchEducationalWebImages(input.question, 1);
+      if (webResults.length > 0 && webResults[0].url) {
+        visualUrl = webResults[0].url;
+      }
+    } catch (err) {
+      console.error('Web image lookup for Ask Later failed, falling back to AI:', err);
+    }
+
+    // 2. Fall back to AI image if no web diagram found
+    if (!visualUrl) {
+      try {
+        const aiImg = await generateEducationalImageUrl(
+          `Educational diagram explaining: ${input.question}`,
+          'textbook',
+          '16:9'
+        );
+        visualUrl = aiImg.url;
+      } catch (err) {
+        console.error('AI image generation for Ask Later failed:', err);
+        visualUrl = `https://picsum.photos/seed/${Math.floor(Math.random() * 1000)}/768/432`;
+      }
+    }
+
+    const audioUri = await generateSpeechWithGemini(answer.substring(0, 400), 'Kore').catch((err) => {
+      console.error('Audio generation for Ask Later failed:', err);
+      return '';
+    });
 
     return {
       answer,
-      imageUrl: imageResult.url,
+      imageUrl: visualUrl,
       audioDataUri: audioUri,
     };
   } catch (error) {

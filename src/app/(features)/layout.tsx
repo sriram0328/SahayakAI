@@ -49,7 +49,6 @@ const menuItems = [
   { href: "/lesson-planner", label: "Lesson Planner", icon: ListTodo },
   { href: "/role-play-script", label: "Role-Play Scripts", icon: Drama },
   { href: "/gamified-learning", label: "Learning Games", icon: Puzzle },
-  { href: "/tug-of-war", label: "Tug of War", icon: Award },
   { href: "/ncert-assistant", label: "NCERT Assistant", icon: BookOpenCheck },
 ];
 
